@@ -17,6 +17,7 @@ import time
 
 ## CONSTANTS
 DAY=86400
+YEAR = DAY*365
 c = 2e6 #ice heat capacity, J/m^3/K
 L = 3e8 #ice latent heat of fusion J/m^3
 cml = 4e6 #mixed layer heat capacity J/m^3/K
@@ -36,7 +37,7 @@ gamma = 120 # ocean-ice heat exchange coeff # 120 W/m^2/K
 Hml = 50 #m ML depth
 Fentr = .5 #W/m^2 
 Kd = 3.3 #Atmospheric heat transport constant W/m^2/K 
-v0 = .10 #sea ice export /year
+v0 = .10/YEAR #sea ice export /s
 leads = .05 #minimum lead fraction
 h0 = .5 #min thickness of new ice
 N = 4 #optical thickness of atm
@@ -53,11 +54,12 @@ def ode_system(t,SW,state_vars):
     [Tml,Ti,V,A] = state_vars
     Ts = A*Ti + (1-A)*Tml
     h = V/A
-    Fsw = SW[floor(t)%365]
+    Fsw = SW[floor(t/DAY)%365]
     LWSW_flux = -LW_imbalance(Ti,Ts)+(1-a_ice)*Fsw
     Fml = (1-A)*(-LW_imbalance(Tml,Ts)+(1-a_o)*Fsw) -A*gamma*Tml + Fentr
     
     if (Tml <= 0) & (Fml < 0): #ice forming
+        # print("if statement 1")
         F_ni = -Fml
         dTml_dt = 0
     else:
@@ -65,6 +67,8 @@ def ode_system(t,SW,state_vars):
         dTml_dt = Fml/(cml*Hml)
     
     if (Ti >= 0) & (LWSW_flux > 0):
+        # print("if state¡ment 2")
+
         dTi_dt = 0
         dV_dt = (A*(LW_imbalance(Ti,Ts) - (1-a_mp)*Fsw-gamma*Tml) -v0*L*V)/L
         
@@ -73,16 +77,18 @@ def ode_system(t,SW,state_vars):
         dV_dt = (A*(-k*Ti/h-gamma*Tml) + F_ni - v0*L*V)/L
         
     if -dV_dt < 0: 
+        # print("if stateme!nt 3")
+
         R = 0
     else:
         R = A/(2*V) * -dV_dt
         
     dA_dt =  F_ni/(L*h0) -R - v0*A
-    print(t)
+    # print(t)
     
-    print('vars',state_vars)
+    # print('vars',state_vars)
     
-    print('derivs',[dTml_dt,dTi_dt,dV_dt,dA_dt])
+    # print('derivs',[dTml_dt,dTi_dt,dV_dt,dA_dt])
     
     return [dTml_dt,dTi_dt,dV_dt,dA_dt]
 
@@ -109,7 +115,7 @@ Q_day = (1-a_atm)*S_0/np.pi*(h_0*np.sin(LAT)*np.sin(declination)+np.cos(LAT)*np.
 Q_day[np.where(np.isnan(Q_day)&(declination<0))] = 0
 Q_day[np.where(np.isnan(Q_day)&(declination>0))] = (1-a_atm)*S_0*np.sin(LAT)*np.sin(declination[np.where(np.isnan(Q_day)&(declination>0))])
 
-total_yrs = .5
+total_yrs = 10
 total_days = total_yrs*365
 saves_per_day = 2
 total_saves = int(total_days*saves_per_day)
@@ -130,8 +136,8 @@ t1 = time.perf_counter()
 [Tml_arr,Ti_arr,V_arr,A_arr] = solve_ODE_system(saves_per_day,total_days,Q_day,T_ml,T_ice,V,A)
 t2 = time.perf_counter()
 
-print(t2-t1)
-
+plt.plot(Tml_arr)
+plt.ylim(0,40)
 
 
 
