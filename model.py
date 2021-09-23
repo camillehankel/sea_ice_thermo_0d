@@ -95,7 +95,7 @@ def solve_ODE_system(coupling,saves_per_day,SW,D,N,TML,TI,V0,A0):
     y_init = np.array([TML,TI,V0,A0])
     ts = np.arange(0,DAY*coupling+dt,dt)
     sol = solve_ivp(fun=lambda t,y: ode_system(t,SW,D,N,y) \
-                ,vectorized=False,y0=y_init,t_span=tspan,t_eval=ts,rtol=1.e-6,method='LSODA')
+                ,vectorized=False,y0=y_init,t_span=tspan,t_eval=ts,rtol=1.0e-8,method='LSODA')
     
     
     x = sol.y
@@ -158,12 +158,34 @@ for day in np.arange(0,total_days,coupling_timestep):
         T_ice = temp_Ti_arr[-1]
 
 
-# t1 = time.perf_counter()
-# [Tml_arr,Ti_arr,V_arr,A_arr] = solve_ODE_system(saves_per_day,total_days,Q_day,T_ml,T_ice,V,A)
-# t2 = time.perf_counter()
+t1 = time.perf_counter()
+[Tml_arr,Ti_arr,V_arr,A_arr] = solve_ODE_system(saves_per_day,total_days,Q_day,T_ml,T_ice,V,A)
+t2 = time.perf_counter()
 
 plt.plot(Tml_arr)
+# dt = DAY/24/6
+# Tml = np.zeros(int(total_yrs*total_days*DAY/dt),)
+# Ti = 0*Tml
+# A = 0*Tml
+# V = 0*Tml
+
+# Tml[0] = 18
+# Ti[0] = -10
+# A[0] = 1
+# V[0] = 3
 
 
+# for i,t in enumerate(np.arange(0,total_yrs*total_days*DAY-dt,dt)):
+#     print(i)
+#     sw = Q_day[floor(t/DAY)%365] #set sw insolation for the day 
+#     print(sw)
+#     d_day = D[floor(t/DAY)%365] #set midlatidude temp for the day
+#     n_day = N[floor(t/DAY)%365] #set optical depth for the day
+#     deriv = ode_system(t,sw,d_day,n_day,[Tml[i],Ti[i],V[i],A[i]])
+#     next_step = np.array([Tml[i],Ti[i],V[i],A[i]]) +dt*np.array(deriv)
+#     Tml[i+1],Ti[i+1],V[i+1],A[i+1] = next_step 
+        
+    
+# plt.plot(V)
 
         
