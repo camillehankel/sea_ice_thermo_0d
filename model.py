@@ -8,6 +8,7 @@ Created on Tue Sep 21 11:59:13 2021
 
 import numpy as np
 from scipy.integrate import solve_ivp
+from scipy.integrate import ode
 import matplotlib.pyplot as plt
 from math import floor
 from scipy import optimize 
@@ -47,7 +48,7 @@ def LW_imbalance(T,Ts,T_midlat,N):
     return lw_Sfc
     
 
-def ode_system(t,SW,T_mid,N,state_vars):
+def ode_system(t,state_vars,SW,T_mid,N):
     [Tml,Ti,V,A] = state_vars
     Ts = A*Ti + (1-A)*Tml
     h = V/A
@@ -55,7 +56,7 @@ def ode_system(t,SW,T_mid,N,state_vars):
     LWSW_flux = -LW_imbalance(Ti,Ts,T_mid,N)+(1-a_ice)*Fsw
     Fml = (1-A)*(-LW_imbalance(Tml,Ts,T_mid,N)+(1-a_o)*Fsw) -A*gamma*Tml + Fentr
     
-    if (Tml <= 0) & (Fml < 0): #ice forming
+    if (Tml <= 0) & (Fml < 0): #ice forming due to freezing mixed layer
         # print("if statement 1")
         F_ni = -Fml
         dTml_dt = 0
@@ -63,8 +64,8 @@ def ode_system(t,SW,T_mid,N,state_vars):
         F_ni = 0
         dTml_dt = Fml/(cml*Hml)
     
-    if (Ti >= 0) & (LWSW_flux > 0):
-        # print("if state¡ment 2")
+    if (Ti >= 0) & (LWSW_flux > 0): #ice surface melting
+        # print("if statement 2")
 
         dTi_dt = 0
         dV_dt = (A*(LW_imbalance(Ti,Ts,T_mid,N) - (1-a_mp)*Fsw-gamma*Tml) -v0*L*V)/L
@@ -94,55 +95,37 @@ def solve_ODE_system(coupling,saves_per_day,SW,D,N,TML,TI,V0,A0):
     dt = DAY/saves_per_day
     y_init = np.array([TML,TI,V0,A0])
     ts = np.arange(0,DAY*coupling+dt,dt)
-    sol = solve_ivp(fun=lambda t,y: ode_system(t,SW,D,N,y) \
-                ,vectorized=False,y0=y_init,t_span=tspan,t_eval=ts,rtol=1.0e-8,method='LSODA')
+    
+    # r = ode(ode_system).set_integrator('zvode',method='bdf',min_step=60)
+    # y0 = y_init
+    # t0 = 0
+    # r.set_initial_value(y0,t0).set_f_params(SW,D,N)
+    # i = 0
+    # out = np.zeros((4,len(ts)))
+    # while r.successful() and r.t<(DAY*coupling+dt):
+    #     out[:,i] = r.integrate(r.t+dt)
+    
+    sol = solve_ivp(fun=lambda t,y: ode_system(t,y,SW,D,N) \
+                ,vectorized=False,y0=y_init,t_span=tspan,t_eval=ts,atol=1.0e2,rtol=1.0e2,method='LSODA',min_step=.25*3600)
     
     
     x = sol.y
     # print(x)
     return x
 
+def run_simulation(total_days,coupling_timestep,Q_day,N,D,saves_per_day,saves_per_coupling,T_ml,T_ice,V,A):
+    total_saves = int(total_days/coupling_timestep*saves_per_coupling)
 
-rep_lat = 80
-
-LAT = rep_lat*2*np.pi/360
-day = np.arange(91.25,456.25,1)
-declination = 23.45*2*np.pi/360*np.sin(day*2*np.pi/365)
-h_0 = np.arccos(-np.tan(LAT)*np.tan(declination))
-Q_day = (1-a_atm)*S_0/np.pi*(h_0*np.sin(LAT)*np.sin(declination)+np.cos(LAT)*np.cos(declination)*np.sin(h_0))
-Q_day[np.where(np.isnan(Q_day)&(declination<0))] = 0
-Q_day[np.where(np.isnan(Q_day)&(declination>0))] = (1-a_atm)*S_0*np.sin(LAT)*np.sin(declination[np.where(np.isnan(Q_day)&(declination>0))])
-
-
-cycle = np.arange(0,365,1)
-D = 7*np.cos(2*np.pi*(cycle-20)/365) + 15 #seasonal cycle of midlatitude temp
-N = 2.2*np.cos(2*np.pi*(cycle-45)/365) + 2 #seasonal cycle of optical thickness
-N[N<2] = 2
-
-total_yrs = 12
-total_days = total_yrs*365
-coupling_timestep = 1
-saves_per_coupling = 2
-total_saves = int(total_days/coupling_timestep*saves_per_coupling)
-saves_per_day = saves_per_coupling/coupling_timestep
-
-Ti_arr = np.zeros(total_saves,)
-Tml_arr = 0*Ti_arr
-V_arr = 0*Ti_arr
-A_arr = 0*Ti_arr
-
-#initial conditions
-A = 1
-V = 10
-T_ml = 18
-T_ice = -10
-
-for day in np.arange(0,total_days,coupling_timestep):
+    Ti_arr = np.zeros(total_saves,)
+    Tml_arr = 0*Ti_arr
+    V_arr = 0*Ti_arr
+    A_arr = 0*Ti_arr
+    
+    for day in np.arange(0,total_days,coupling_timestep):
         print(day)
         sw = Q_day[floor(day)%365] #set sw insolation for the day 
-        d_day = D[floor(day)%365] #set midlatidude temp for the day
-        n_day = N[floor(day)%365] #set optical depth for the day
-        # print(sw)
+        d_day = D[floor(day)] #set midlatidude temp for the day
+        n_day = N[floor(day)] #set optical depth for the day
         start_index = floor(day*saves_per_day)
         end_index = floor(start_index+saves_per_coupling)
 
@@ -156,36 +139,76 @@ for day in np.arange(0,total_days,coupling_timestep):
         V = temp_V_arr[-1]
         T_ml = temp_Tml_arr[-1]
         T_ice = temp_Ti_arr[-1]
-
-
-t1 = time.perf_counter()
-[Tml_arr,Ti_arr,V_arr,A_arr] = solve_ODE_system(saves_per_day,total_days,Q_day,T_ml,T_ice,V,A)
-t2 = time.perf_counter()
-
-plt.plot(Tml_arr)
-# dt = DAY/24/6
-# Tml = np.zeros(int(total_yrs*total_days*DAY/dt),)
-# Ti = 0*Tml
-# A = 0*Tml
-# V = 0*Tml
-
-# Tml[0] = 18
-# Ti[0] = -10
-# A[0] = 1
-# V[0] = 3
-
-
-# for i,t in enumerate(np.arange(0,total_yrs*total_days*DAY-dt,dt)):
-#     print(i)
-#     sw = Q_day[floor(t/DAY)%365] #set sw insolation for the day 
-#     print(sw)
-#     d_day = D[floor(t/DAY)%365] #set midlatidude temp for the day
-#     n_day = N[floor(t/DAY)%365] #set optical depth for the day
-#     deriv = ode_system(t,sw,d_day,n_day,[Tml[i],Ti[i],V[i],A[i]])
-#     next_step = np.array([Tml[i],Ti[i],V[i],A[i]]) +dt*np.array(deriv)
-#     Tml[i+1],Ti[i+1],V[i+1],A[i+1] = next_step 
         
+    print(sw)
+        
+    return Ti_arr,Tml_arr,V_arr,A_arr
     
-# plt.plot(V)
 
+# will pass these params into function
+rep_lat = 80
+start_co2 = 1
+final_co2 = 8 #factor times present co2
+yrs_to_achieve = 200
+
+LAT = rep_lat*2*np.pi/360
+day = np.arange(91.25,456.25,1)
+declination = 23.45*2*np.pi/360*np.sin(day*2*np.pi/365)
+h_0 = np.arccos(-np.tan(LAT)*np.tan(declination))
+Q_day = (1-a_atm)*S_0/np.pi*(h_0*np.sin(LAT)*np.sin(declination)+np.cos(LAT)*np.cos(declination)*np.sin(h_0))
+Q_day[np.where(np.isnan(Q_day)&(declination<0))] = 0
+Q_day[np.where(np.isnan(Q_day)&(declination>0))] = (1-a_atm)*S_0*np.sin(LAT)*np.sin(declination[np.where(np.isnan(Q_day)&(declination>0))])
+
+
+coupling_timestep = 1
+saves_per_coupling = 2
+saves_per_day = saves_per_coupling/coupling_timestep
+
+
+## First run the simulation with fixed co2
+yrs_to_eq = 30
+total_days = yrs_to_eq*365
+
+cycles = np.arange(0,yrs_to_eq*365,1)
+N_mean = 2 + .2*math.log(start_co2,2)
+D_mean = 15 +3*math.log(start_co2,2)
+N =  2.2*np.cos(2*np.pi*(cycles-45)/365) + N_mean
+N[N<N_mean] = N_mean
+D = 7*np.cos(2*np.pi*(cycles-20)/365) + D_mean
+
+#initial conditions
+A = 1 #.819
+V = 3 #1.42
+T_ml = .2 #.1446
+T_ice = -1 #.1205
+
+Ti_arr_eq,Tml_arr_eq,V_arr_eq,A_arr_eq = run_simulation(total_days, coupling_timestep, Q_day, N, D, saves_per_day, saves_per_coupling, T_ml, T_ice, V, A)
+
+if np.absolute(np.mean(V_arr_eq[-365*int(saves_per_day):])-np.mean(V_arr_eq[-2*365*int(saves_per_day):-365*int(saves_per_day)])) >.001:
+    print("May not have achieved equilibrium")
+
+#Last timestep used for new initial conditions
+A_new = A_arr_eq[-1]
+V_new = V_arr_eq[-1]
+Tml_new = Tml_arr_eq[-1]
+Ti_new = Ti_arr_eq[-1]
+
+# Make an array of transient co2 forcing
+total_days = yrs_to_achieve*365
+cycles = np.arange(0,yrs_to_achieve*365,1)
+N_mean = 2 + cycles/(yrs_to_achieve*365-1)*.2*math.log(final_co2,2)
+N =  2.2*np.cos(2*np.pi*(cycles-45)/365) + N_mean
+N[N<N_mean] = N_mean[N<N_mean]
+D_mean = 15 + cycles/(yrs_to_achieve*365-1)*3*math.log(final_co2,2)
+D = 7*np.cos(2*np.pi*(cycles-20)/365) + D_mean #seasonal cycle of midlatitude temp
+
+#run simulation with transient co2
+Ti_arr,Tml_arr,V_arr,A_arr = run_simulation(total_days, coupling_timestep, Q_day, N, D, saves_per_day, saves_per_coupling, Tml_new, Ti_new, V_new, A_new)
+
+days = np.arange(0,total_days,1/saves_per_day)
+plt.plot(days,V_arr);
+plt.ylim(0,10);
+plt.xlim(139000/2,144000/2)
+plt.xlabel('Days')
+plt.ylabel('Ice Volume [m/m$^2$ area]')
         
