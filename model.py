@@ -50,6 +50,10 @@ def LW_imbalance(T,Ts,T_midlat,N):
 
 def ode_system(t,state_vars,SW,T_mid,N):
     [Tml,Ti,V,A] = state_vars
+    # if V<0:
+    #     V = 1e-10
+    # if A<0:
+    #     A = 1e-12
     Ts = A*Ti + (1-A)*Tml
     h = V/A
     Fsw = SW
@@ -57,7 +61,6 @@ def ode_system(t,state_vars,SW,T_mid,N):
     Fml = (1-A)*(-LW_imbalance(Tml,Ts,T_mid,N)+(1-a_o)*Fsw) -A*gamma*Tml + Fentr
     
     if (Tml <= 0) & (Fml < 0): #ice forming due to freezing mixed layer
-        # print("if statement 1")
         F_ni = -Fml
         dTml_dt = 0
     else:
@@ -65,8 +68,6 @@ def ode_system(t,state_vars,SW,T_mid,N):
         dTml_dt = Fml/(cml*Hml)
     
     if (Ti >= 0) & (LWSW_flux > 0): #ice surface melting
-        # print("if statement 2")
-
         dTi_dt = 0
         dV_dt = (A*(LW_imbalance(Ti,Ts,T_mid,N) - (1-a_mp)*Fsw-gamma*Tml) -v0*L*V)/L
         
@@ -74,8 +75,7 @@ def ode_system(t,state_vars,SW,T_mid,N):
         dTi_dt = (LWSW_flux - k*Ti/h)*2/(c*h)
         dV_dt = (A*(-k*Ti/h-gamma*Tml) + F_ni - v0*L*V)/L
         
-    if -dV_dt < 0: 
-        # print("if stateme!nt 3")
+    if dV_dt > 0: 
 
         R = 0
     else:
@@ -83,10 +83,11 @@ def ode_system(t,state_vars,SW,T_mid,N):
         
     dA_dt =  F_ni/(L*h0) -R - v0*A
     # print(t)
+    if V<0:
+        print('vars',state_vars)
     
-    # print('vars',state_vars)
-    
-    # print('derivs',[dTml_dt,dTi_dt,dV_dt,dA_dt])
+        print('derivs',[dTml_dt,dTi_dt,dV_dt,dA_dt])
+        exit()
     
     return [dTml_dt,dTi_dt,dV_dt,dA_dt]
 
@@ -106,9 +107,9 @@ def solve_ODE_system(coupling,saves_per_day,SW,D,N,TML,TI,V0,A0):
     #     out[:,i] = r.integrate(r.t+dt)
     
     sol = solve_ivp(fun=lambda t,y: ode_system(t,y,SW,D,N) \
-                ,vectorized=False,y0=y_init,t_span=tspan,t_eval=ts,atol=1.0e2,rtol=1.0e2,method='LSODA',min_step=.25*3600)
-    
-    
+                ,vectorized=False,y0=y_init,t_span=tspan,t_eval=ts,atol=1.0e3,rtol=1.0e3,method='LSODA',min_step=.0625*3600)
+    if sol.status != 0:
+        print("convergence failed :( ")
     x = sol.y
     # print(x)
     return x
@@ -147,9 +148,9 @@ def run_simulation(total_days,coupling_timestep,Q_day,N,D,saves_per_day,saves_pe
 
 # will pass these params into function
 rep_lat = 80
-start_co2 = 1
-final_co2 = 8 #factor times present co2
-yrs_to_achieve = 200
+start_co2 = 7
+final_co2 = 7.8 #factor times present co2
+yrs_to_achieve = 100
 
 LAT = rep_lat*2*np.pi/360
 day = np.arange(91.25,456.25,1)
@@ -161,12 +162,12 @@ Q_day[np.where(np.isnan(Q_day)&(declination>0))] = (1-a_atm)*S_0*np.sin(LAT)*np.
 
 
 coupling_timestep = 1
-saves_per_coupling = 2
+saves_per_coupling = 1
 saves_per_day = saves_per_coupling/coupling_timestep
 
 
 ## First run the simulation with fixed co2
-yrs_to_eq = 30
+yrs_to_eq = 20
 total_days = yrs_to_eq*365
 
 cycles = np.arange(0,yrs_to_eq*365,1)
@@ -177,10 +178,10 @@ N[N<N_mean] = N_mean
 D = 7*np.cos(2*np.pi*(cycles-20)/365) + D_mean
 
 #initial conditions
-A = 1 #.819
-V = 3 #1.42
-T_ml = .2 #.1446
-T_ice = -1 #.1205
+A = .819
+V = 1.42
+T_ml = .1446
+T_ice = .1205
 
 Ti_arr_eq,Tml_arr_eq,V_arr_eq,A_arr_eq = run_simulation(total_days, coupling_timestep, Q_day, N, D, saves_per_day, saves_per_coupling, T_ml, T_ice, V, A)
 
@@ -188,27 +189,71 @@ if np.absolute(np.mean(V_arr_eq[-365*int(saves_per_day):])-np.mean(V_arr_eq[-2*3
     print("May not have achieved equilibrium")
 
 #Last timestep used for new initial conditions
-A_new = A_arr_eq[-1]
-V_new = V_arr_eq[-1]
-Tml_new = Tml_arr_eq[-1]
-Ti_new = Ti_arr_eq[-1]
+A_new = 1*A_arr_eq[-1]
+V_new = 1*V_arr_eq[-1]
+Tml_new = 1*Tml_arr_eq[-1]
+Ti_new = 1*Ti_arr_eq[-1]
 
 # Make an array of transient co2 forcing
 total_days = yrs_to_achieve*365
 cycles = np.arange(0,yrs_to_achieve*365,1)
-N_mean = 2 + cycles/(yrs_to_achieve*365-1)*.2*math.log(final_co2,2)
+starting_N = 2 + .2*math.log(start_co2,2)
+ending_N = 2 + .2*math.log(final_co2,2)
+N_mean = starting_N + cycles/(yrs_to_achieve*365-1)*(ending_N-starting_N)
 N =  2.2*np.cos(2*np.pi*(cycles-45)/365) + N_mean
 N[N<N_mean] = N_mean[N<N_mean]
-D_mean = 15 + cycles/(yrs_to_achieve*365-1)*3*math.log(final_co2,2)
+
+starting_D = 15 + 3*math.log(start_co2,2)
+ending_D = 15 + 3*math.log(final_co2,2)
+D_mean = starting_D + cycles/(yrs_to_achieve*365-1)*(ending_D - starting_D)
 D = 7*np.cos(2*np.pi*(cycles-20)/365) + D_mean #seasonal cycle of midlatitude temp
 
 #run simulation with transient co2
 Ti_arr,Tml_arr,V_arr,A_arr = run_simulation(total_days, coupling_timestep, Q_day, N, D, saves_per_day, saves_per_coupling, Tml_new, Ti_new, V_new, A_new)
 
-days = np.arange(0,total_days,1/saves_per_day)
-plt.plot(days,V_arr);
-plt.ylim(0,10);
-plt.xlim(139000/2,144000/2)
+total_V = np.concatenate([V_arr_eq,V_arr])
+total_A = np.concatenate([A_arr_eq,A_arr])
+total_Tml = np.concatenate([Tml_arr_eq,Tml_arr])
+total_Ti = np.concatenate([Ti_arr_eq,Ti_arr])
+days = range(len(total_V))
+
+plt.plot(days,total_V);
 plt.xlabel('Days')
 plt.ylabel('Ice Volume [m/m$^2$ area]')
-        
+plt.ylim(0,4)
+plt.xlim(5000,11000)
+
+# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/V_problem_v5.pdf')
+# plt.clf()
+
+# plt.plot(days,total_A);
+# plt.xlabel('Days')
+# plt.ylabel('Ice Fraction')
+# plt.xlim(5000,11000)
+# plt.ylim(0,1)
+# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/A_problem_v5.pdf')
+# plt.clf()
+
+# plt.plot(days,total_Tml);
+# plt.xlabel('Days')
+# plt.ylabel('ML Temperature [C]')
+# plt.xlim(5000,11000)
+# plt.ylim(0,1)
+# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/Tml_problem_v5.pdf')
+# plt.clf()
+
+# plt.plot(days,total_Ti);
+# plt.xlabel('Days')
+# plt.ylabel('Ice Temperature [C]')
+# plt.xlim(5000,11000)
+# plt.ylim(-30,1)
+# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/Ti_problem_v5.pdf')
+# plt.clf()
+
+
+# plt.plot(N_mean,V_arr)
+# plt.xlabel('Mean CO2 Forcing')
+# plt.ylabel('Ice Volume [m/m$^2$ area]')
+# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/VvsCO2_4xCO2_50yrs.pdf')
+
+    
