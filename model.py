@@ -16,7 +16,7 @@ import math
 import time
 
 ## CONSTANTS
-DAY=86400
+DAY = 86400
 YEAR = DAY*365
 c = 2e6 #ice heat capacity, J/m^3/K
 L = 3e8 #ice latent heat of fusion J/m^3
@@ -123,7 +123,7 @@ def run_simulation(total_days,coupling_timestep,Q_day,N,D,saves_per_day,saves_pe
     A_arr = 0*Ti_arr
     
     for day in np.arange(0,total_days,coupling_timestep):
-        print(day)
+        #print(day)
         sw = Q_day[floor(day)%365] #set sw insolation for the day 
         d_day = D[floor(day)] #set midlatidude temp for the day
         n_day = N[floor(day)] #set optical depth for the day
@@ -159,7 +159,8 @@ h_0 = np.arccos(-np.tan(LAT)*np.tan(declination))
 Q_day = (1-a_atm)*S_0/np.pi*(h_0*np.sin(LAT)*np.sin(declination)+np.cos(LAT)*np.cos(declination)*np.sin(h_0))
 Q_day[np.where(np.isnan(Q_day)&(declination<0))] = 0
 Q_day[np.where(np.isnan(Q_day)&(declination>0))] = (1-a_atm)*S_0*np.sin(LAT)*np.sin(declination[np.where(np.isnan(Q_day)&(declination>0))])
-
+plt.plot(Q_day)
+plt.show()
 
 coupling_timestep = 1
 saves_per_coupling = 1
