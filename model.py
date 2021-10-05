@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from math import floor
 from scipy import optimize 
 import math
-import time
+import sys
 
 ## CONSTANTS
 DAY=86400
@@ -32,7 +32,7 @@ a_o= .2 #ocean albedo
 a_mp = .55 #melt pond albedo
 a_atm = .45 
 gamma = 120 # ocean-ice heat exchange coeff # 120 W/m^2/K
-Hml = 50 #m ML depth
+Hml = 100 #m ML depth
 Fentr = .5 #W/m^2 
 Kd = 3.3 #Atmospheric heat transport constant W/m^2/K 
 v0 = .10/YEAR #sea ice export /s
@@ -51,43 +51,90 @@ def LW_imbalance(T,Ts,T_midlat,N):
 def ode_system(t,state_vars,SW,T_mid,N):
     [Tml,Ti,V,A] = state_vars
     # if V<0:
-    #     V = 1e-10
+    #     V = 1e-6
     # if A<0:
-    #     A = 1e-12
+    #     A = 1e-8
     Ts = A*Ti + (1-A)*Tml
     h = V/A
     Fsw = SW
     LWSW_flux = -LW_imbalance(Ti,Ts,T_mid,N)+(1-a_ice)*Fsw
     Fml = (1-A)*(-LW_imbalance(Tml,Ts,T_mid,N)+(1-a_o)*Fsw) -A*gamma*Tml + Fentr
     
+    
+    # if Fml < 0:
+    #     if T_ml>10:
+    #         F_ni = 0
+    #         dTml_dt = Fml/(cml*Hml)
+            
+    #     elif T_ml<10:
+    #         F_ni = -Fml
+    #         dTml_dt = 0
+    #     else:
+    #         F_ni = -Fml/(1+math.exp(Tml*10))
+    #         dTml_dt = Fml/(cml*Hml)/(1+math.exp(-Tml*10))
+        
+    # else:
+    #     F_ni = 0
+    #     dTml_dt = Fml/(cml*Hml)
+           
+    # no_sfc_melt_dTi = (LWSW_flux - k*Ti/h)*2/(c*h)
+    # sfc_melt_dV = (A*(LW_imbalance(Ti,Ts,T_mid,N) - (1-a_mp)*Fsw-gamma*Tml) -v0*L*V)/L
+    # no_sfc_melt_dV = (A*(-k*Ti/h-gamma*Tml) + F_ni - v0*L*V)/L
+    # if (LWSW_flux < -100) or (Ti < -100):
+    #     dTi_dt = no_sfc_melt_dTi
+    #     dV_dt = no_sfc_melt_dV
+    # else:
+    #     dTi_dt = no_sfc_melt_dTi- no_sfc_melt_dTi/(1+(math.exp(-Ti*2)+math.exp(-LWSW_flux/2))/2)
+    #     dV_dt = no_sfc_melt_dV - (no_sfc_melt_dV-sfc_melt_dV)/(1+(math.exp(-Ti*2)+math.exp(-LWSW_flux/2))/2)
+    
     if (Tml <= 0) & (Fml < 0): #ice forming due to freezing mixed layer
+        # print("if statment 1")
         F_ni = -Fml
         dTml_dt = 0
     else:
+        # print("not if statement 1")
         F_ni = 0
         dTml_dt = Fml/(cml*Hml)
     
-    if (Ti >= 0) & (LWSW_flux > 0): #ice surface melting
-        dTi_dt = 0
-        dV_dt = (A*(LW_imbalance(Ti,Ts,T_mid,N) - (1-a_mp)*Fsw-gamma*Tml) -v0*L*V)/L
-        
+    
+    if V < 0:
+        dV_dt = (.01-V)/DAY
+        dTi_dt = -Ti/DAY
     else:
-        dTi_dt = (LWSW_flux - k*Ti/h)*2/(c*h)
-        dV_dt = (A*(-k*Ti/h-gamma*Tml) + F_ni - v0*L*V)/L
+        if (Ti >= 0) & (LWSW_flux>0): #ice surface melting
+            # print("if statement 2")
+            dTi_dt = 0
+            dV_dt = (A*(LW_imbalance(Ti,Ts,T_mid,N) - (1-a_mp)*Fsw-gamma*Tml) -v0*L*V)/L
         
+        else:
+            # print('LWSW',LWSW_flux)
+            # print('diffusion',k*Ti/h)
+            # print("not if statementn 2")
+            if V < .01:
+                dTi_dt = -Ti/DAY
+            else:
+                dTi_dt = (LWSW_flux - k*Ti/h)*2/(c*h)
+            
+            dV_dt = (A*(-k*Ti/h-gamma*Tml) + F_ni - v0*L*V)/L
+        
+    # print(dV_dt)
     if dV_dt > 0: 
-
+        # print("if statement 3")
         R = 0
     else:
-        R = A/(2*V) * -dV_dt
+        R = -dV_dt * A/(2*V) 
+        # print("not if statement 3")
         
-    dA_dt =  F_ni/(L*h0) -R - v0*A
-    # print(t)
-    if V<0:
-        print('vars',state_vars)
+    if A < 0:
+        dA_dt = (.001-A)/DAY
+    else:
+        dA_dt =  F_ni/(L*h0) -R - v0*A
+    # print(Fml)
     
-        print('derivs',[dTml_dt,dTi_dt,dV_dt,dA_dt])
-        exit()
+    # print('vars',state_vars)
+    # print('derivs',[dTml_dt,dTi_dt,dV_dt,dA_dt])
+    if np.sum(np.isnan(state_vars)):
+        sys.exit()
     
     return [dTml_dt,dTi_dt,dV_dt,dA_dt]
 
@@ -107,9 +154,12 @@ def solve_ODE_system(coupling,saves_per_day,SW,D,N,TML,TI,V0,A0):
     #     out[:,i] = r.integrate(r.t+dt)
     
     sol = solve_ivp(fun=lambda t,y: ode_system(t,y,SW,D,N) \
-                ,vectorized=False,y0=y_init,t_span=tspan,t_eval=ts,atol=1.0e3,rtol=1.0e3,method='LSODA',min_step=.0625*3600)
-    if sol.status != 0:
-        print("convergence failed :( ")
+                ,vectorized=False,y0=y_init,t_span=tspan,t_eval=ts,atol=1.0e-2,rtol=1.0e-2,method='LSODA',min_step=1e-7*3600,max_step=.125*3600)
+    # if sol.status != 0:
+    #     print("convergence failed :( ")
+    #     print(y_init)
+    #     sol = solve_ivp(fun=lambda t,y: ode_system(t,y,SW,D,N) \
+    #             ,vectorized=False,y0=y_init,t_span=tspan,t_eval=ts,atol=1.0e-6,rtol=1.0e-6,method='LSODA',min_step=.5e-5*3600,max_step=.5e-5*3600)
     x = sol.y
     # print(x)
     return x
@@ -123,7 +173,8 @@ def run_simulation(total_days,coupling_timestep,Q_day,N,D,saves_per_day,saves_pe
     A_arr = 0*Ti_arr
     
     for day in np.arange(0,total_days,coupling_timestep):
-        print(day)
+        if day % 365 == 0:
+            print(day/365)
         sw = Q_day[floor(day)%365] #set sw insolation for the day 
         d_day = D[floor(day)] #set midlatidude temp for the day
         n_day = N[floor(day)] #set optical depth for the day
@@ -140,17 +191,17 @@ def run_simulation(total_days,coupling_timestep,Q_day,N,D,saves_per_day,saves_pe
         V = temp_V_arr[-1]
         T_ml = temp_Tml_arr[-1]
         T_ice = temp_Ti_arr[-1]
-        
-    print(sw)
-        
+                
     return Ti_arr,Tml_arr,V_arr,A_arr
     
 
+
+
 # will pass these params into function
 rep_lat = 80
-start_co2 = 7
-final_co2 = 7.8 #factor times present co2
-yrs_to_achieve = 100
+start_co2 = 2
+final_co2 = 20 #factor times present co2
+yrs_to_achieve = 200
 
 LAT = rep_lat*2*np.pi/360
 day = np.arange(91.25,456.25,1)
@@ -159,7 +210,6 @@ h_0 = np.arccos(-np.tan(LAT)*np.tan(declination))
 Q_day = (1-a_atm)*S_0/np.pi*(h_0*np.sin(LAT)*np.sin(declination)+np.cos(LAT)*np.cos(declination)*np.sin(h_0))
 Q_day[np.where(np.isnan(Q_day)&(declination<0))] = 0
 Q_day[np.where(np.isnan(Q_day)&(declination>0))] = (1-a_atm)*S_0*np.sin(LAT)*np.sin(declination[np.where(np.isnan(Q_day)&(declination>0))])
-
 
 coupling_timestep = 1
 saves_per_coupling = 1
@@ -217,11 +267,11 @@ total_Tml = np.concatenate([Tml_arr_eq,Tml_arr])
 total_Ti = np.concatenate([Ti_arr_eq,Ti_arr])
 days = range(len(total_V))
 
-plt.plot(days,total_V);
-plt.xlabel('Days')
-plt.ylabel('Ice Volume [m/m$^2$ area]')
-plt.ylim(0,4)
-plt.xlim(5000,11000)
+# plt.plot(days,total_V);
+# plt.xlabel('Days')
+# plt.ylabel('Ice Volume [m/m$^2$ area]')
+# plt.ylim(0,4)
+# plt.xlim(5000,11000)
 
 # plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/V_problem_v5.pdf')
 # plt.clf()
