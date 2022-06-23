@@ -14,7 +14,6 @@ from math import floor
 from scipy import optimize 
 import math
 import sys
-import time
 
 ## CONSTANTS
 DAY=86400
@@ -22,48 +21,39 @@ YEAR = DAY*365
 c = 2e6 #ice heat capacity, J/m^3/K
 L = 3e8 #ice latent heat of fusion J/m^3
 cml = 4e6 #mixed layer heat capacity J/m^3/K
-k = 2*2 #ice thermal conductivity W/m^2/K (normally 2)
+
 a = 320 #LW rad W/m^2
 b = 4.6 #LW rad W/m^2/K
 S_0 = 1365 #solar constant
 
 # T_midlat = 20#K
-<<<<<<< Updated upstream
-a_ice = .65 #ice albedo 
-a_o= .2 #ocean albedo
-a_mp = .55 #melt pond albedo
-a_atm = .45 
-=======
 
 #standard albedo params:
-# a_ice = .75 #ice albedo 
-# a_o= .1 #ocean albedo
-# a_mp = .45 #melt pond albedo
-# a_atm = .425 #atmoshperic albedo
+a_ice = .75 #ice albedo 
+a_o= .1 #ocean albedo
+a_mp = .45 #melt pond albedo
+a_atm = .425 #atmoshperic albedo
+k = 2 #ice thermal conductivity W/m^2/K (normally 2)
                    
 #suppressing bifurcation params:
-a_ice = .45 #ice albedo 
-a_o= .25 #ocean albedo
-a_mp = .4 #melt pond albedo
-a_atm = .425 #atmoshperic albedo
+#a_ice = .45 #ice albedo 
+#a_o= .25 #ocean albedo
+#a_mp = .4 #melt pond albedo
+#a_atm = .425 #atmoshperic albedo
+#k = 2*2 #ice thermal conductivity W/m^2/K (normally 2)
 
->>>>>>> Stashed changes
 gamma = 120 # ocean-ice heat exchange coeff # 120 W/m^2/K
-Hml = 100 #m ML depth
+#Hml = 100 #m ML depth
 Fentr = .5 #W/m^2 
 Kd = 3.3 #Atmospheric heat transport constant W/m^2/K 
 v0 = .10/YEAR #sea ice export /s
 leads = .05 #minimum lead fraction
 h0 = .5 #min thickness of new ice
 # N = 4 #optical thickness of atm
-<<<<<<< Updated upstream
-
-=======
 # min_N = 1.25 #minimum co2 parameter throughout the year, tunable param
 # amplitude_N = 4
 D_amp = 7
-delN = .192
->>>>>>> Stashed changes
+delN = .235
 
 def LW_imbalance(T,Ts,T_midlat,N):
    # Ts = A*Ti + (1-A)*Tml
@@ -151,6 +141,9 @@ def ode_system(t,state_vars,SW,T_mid,N):
         
     if A < 0:
         dA_dt = (.001-A)/DAY
+        
+    # elif A > .95:
+    #     dA_dt = (.94-A)/DAY
     else:
         dA_dt =  F_ni/(L*h0) -R - v0*A
     # print(Fml)
@@ -196,14 +189,9 @@ def run_simulation(total_days,coupling_timestep,Q_day,N,D,saves_per_day,saves_pe
     V_arr = 0*Ti_arr
     A_arr = 0*Ti_arr
     
-    t1 = time.perf_counter()
-    
     for day in np.arange(0,total_days,coupling_timestep):
         if day % 365 == 0:
-            # print('year: ',day/365)
-            t2 = time.perf_counter()
-            # print('time elapsed :',t2-t1)
-            t1 = t2
+            print(day/365)
         sw = Q_day[floor(day)%365] #set sw insolation for the day 
         d_day = D[floor(day)] #set midlatidude temp for the day
         n_day = N[floor(day)] #set optical depth for the day
@@ -224,80 +212,6 @@ def run_simulation(total_days,coupling_timestep,Q_day,N,D,saves_per_day,saves_pe
     return Ti_arr,Tml_arr,V_arr,A_arr
     
 
-<<<<<<< Updated upstream
-
-
-# will pass these params into function
-rep_lat = 80
-start_co2 = 2
-final_co2 = 20 #factor times present co2
-yrs_to_achieve = 200
-
-LAT = rep_lat*2*np.pi/360
-day = np.arange(91.25,456.25,1)
-declination = 23.45*2*np.pi/360*np.sin(day*2*np.pi/365)
-h_0 = np.arccos(-np.tan(LAT)*np.tan(declination))
-Q_day = (1-a_atm)*S_0/np.pi*(h_0*np.sin(LAT)*np.sin(declination)+np.cos(LAT)*np.cos(declination)*np.sin(h_0))
-Q_day[np.where(np.isnan(Q_day)&(declination<0))] = 0
-Q_day[np.where(np.isnan(Q_day)&(declination>0))] = (1-a_atm)*S_0*np.sin(LAT)*np.sin(declination[np.where(np.isnan(Q_day)&(declination>0))])
-
-coupling_timestep = 1
-saves_per_coupling = 1
-saves_per_day = saves_per_coupling/coupling_timestep
-
-
-## First run the simulation with fixed co2
-yrs_to_eq = 20
-total_days = yrs_to_eq*365
-
-cycles = np.arange(0,yrs_to_eq*365,1)
-N_mean = 2 + .2*math.log(start_co2,2)
-D_mean = 15 +3*math.log(start_co2,2)
-N =  2.2*np.cos(2*np.pi*(cycles-45)/365) + N_mean
-N[N<N_mean] = N_mean
-D = 7*np.cos(2*np.pi*(cycles-20)/365) + D_mean
-
-#initial conditions
-A = .819
-V = 1.42
-T_ml = .1446
-T_ice = .1205
-
-Ti_arr_eq,Tml_arr_eq,V_arr_eq,A_arr_eq = run_simulation(total_days, coupling_timestep, Q_day, N, D, saves_per_day, saves_per_coupling, T_ml, T_ice, V, A)
-
-if np.absolute(np.mean(V_arr_eq[-365*int(saves_per_day):])-np.mean(V_arr_eq[-2*365*int(saves_per_day):-365*int(saves_per_day)])) >.001:
-    print("May not have achieved equilibrium")
-
-#Last timestep used for new initial conditions
-A_new = 1*A_arr_eq[-1]
-V_new = 1*V_arr_eq[-1]
-Tml_new = 1*Tml_arr_eq[-1]
-Ti_new = 1*Ti_arr_eq[-1]
-
-# Make an array of transient co2 forcing
-total_days = yrs_to_achieve*365
-cycles = np.arange(0,yrs_to_achieve*365,1)
-starting_N = 2 + .2*math.log(start_co2,2)
-ending_N = 2 + .2*math.log(final_co2,2)
-N_mean = starting_N + cycles/(yrs_to_achieve*365-1)*(ending_N-starting_N)
-N =  2.2*np.cos(2*np.pi*(cycles-45)/365) + N_mean
-N[N<N_mean] = N_mean[N<N_mean]
-
-starting_D = 15 + 3*math.log(start_co2,2)
-ending_D = 15 + 3*math.log(final_co2,2)
-D_mean = starting_D + cycles/(yrs_to_achieve*365-1)*(ending_D - starting_D)
-D = 7*np.cos(2*np.pi*(cycles-20)/365) + D_mean #seasonal cycle of midlatitude temp
-
-#run simulation with transient co2
-Ti_arr,Tml_arr,V_arr,A_arr = run_simulation(total_days, coupling_timestep, Q_day, N, D, saves_per_day, saves_per_coupling, Tml_new, Ti_new, V_new, A_new)
-
-total_V = np.concatenate([V_arr_eq,V_arr])
-total_A = np.concatenate([A_arr_eq,A_arr])
-total_Tml = np.concatenate([Tml_arr_eq,Tml_arr])
-total_Ti = np.concatenate([Ti_arr_eq,Ti_arr])
-days = range(len(total_V))
-
-=======
 def run_batch(rep_lat,ML_depth,start_co2,final_co2,yrs_to_eq,yrs_to_achieve,N_min,N_amp,V0,A0,Tml0,Ti0):
     # will pass these params into function
     global Hml 
@@ -392,46 +306,4 @@ def run_batch(rep_lat,ML_depth,start_co2,final_co2,yrs_to_eq,yrs_to_achieve,N_mi
     
     
     return total_V,total_A,total_Tml,total_Ti,total_co2
-    
-    
->>>>>>> Stashed changes
-# plt.plot(days,total_V);
-# plt.xlabel('Days')
-# plt.ylabel('Ice Volume [m/m$^2$ area]')
-# plt.ylim(0,4)
-# plt.xlim(5000,11000)
-
-# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/V_problem_v5.pdf')
-# plt.clf()
-
-# plt.plot(days,total_A);
-# plt.xlabel('Days')
-# plt.ylabel('Ice Fraction')
-# plt.xlim(5000,11000)
-# plt.ylim(0,1)
-# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/A_problem_v5.pdf')
-# plt.clf()
-
-# plt.plot(days,total_Tml);
-# plt.xlabel('Days')
-# plt.ylabel('ML Temperature [C]')
-# plt.xlim(5000,11000)
-# plt.ylim(0,1)
-# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/Tml_problem_v5.pdf')
-# plt.clf()
-
-# plt.plot(days,total_Ti);
-# plt.xlabel('Days')
-# plt.ylabel('Ice Temperature [C]')
-# plt.xlim(5000,11000)
-# plt.ylim(-30,1)
-# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/Ti_problem_v5.pdf')
-# plt.clf()
-
-
-# plt.plot(N_mean,V_arr)
-# plt.xlabel('Mean CO2 Forcing')
-# plt.ylabel('Ice Volume [m/m$^2$ area]')
-# plt.savefig('/Users/camillehankel/Dropbox/Research/Output/Eisenmann_2007/VvsCO2_4xCO2_50yrs.pdf')
-
     
